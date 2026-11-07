@@ -649,31 +649,51 @@ function preloadImages() {
     lazyLoadRest();
   }
   
-  // 缩略图也立即批量加载（小文件）
-  const thumbs = document.querySelectorAll('.thumb img[data-src], .sidebar-thumb[data-src]');
-  thumbs.forEach((img, i) => {
-    setTimeout(() => {
+  // 缩略图按需加载：只加载进入可视区域的（未滚到的缩略图、侧栏未打开时不发请求）
+  lazyThumbs();
+  // 预取当前页及相邻页
+  ensureImages(1);
+}
+
+/* 仅按需加载指定页 + 相邻页的大图 */
+function ensureImages(page) {
+  [page, page + 1, page - 1].forEach(p => {
+    if (p < 1 || p > TOTAL_PAGES) return;
+    const img = document.querySelector('.page-slide[data-page="' + p + '"] .page-img[data-src]');
+    if (img) {
       img.src = img.dataset.src;
       img.removeAttribute('data-src');
       img.onload = () => img.classList.add('loaded');
-    }, i * 20); // 每20ms加载一张，避免请求风暴
+    }
   });
 }
 
 function lazyLoadRest() {
-  const imgs = document.querySelectorAll('.page-slide .page-img[data-src]');
+  ensureImages(currentPage);
+}
+
+/* 缩略图懒加载（横向滚动条 + 侧栏） */
+function lazyThumbs() {
+  const imgs = document.querySelectorAll('.thumb img[data-src], .sidebar-thumb[data-src]');
+  if (!('IntersectionObserver' in window)) {
+    imgs.forEach(loadThumb);
+    return;
+  }
   const io = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        const img = entry.target;
-        img.src = img.dataset.src;
-        img.removeAttribute('data-src');
-        img.onload = () => img.classList.add('loaded');
-        io.unobserve(img);
-      }
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      loadThumb(e.target);
+      io.unobserve(e.target);
     });
-  }, { rootMargin: '100px' });
+  }, { rootMargin: '200px 400px' });
   imgs.forEach(img => io.observe(img));
+}
+
+function loadThumb(img) {
+  if (!img || !img.dataset.src) return;
+  img.src = img.dataset.src;
+  img.removeAttribute('data-src');
+  img.onload = () => img.classList.add('loaded');
 }
 
 /* ========== 翻页 ========== */
@@ -693,8 +713,8 @@ function goToPage(target, silent) {
   });
   
   currentPage = target;
-  
-  // 更新UI
+  ensureImages(target);
+
   document.getElementById('pageCurrent').textContent = target;
   document.getElementById('progressFill').style.width = (target / TOTAL_PAGES * 100) + '%';
   
